@@ -48,6 +48,14 @@ On Arch Linux, `nemo` currently pulls `python-gobject` and `python-cairo` as dep
 
 ## Install
 
+Install with the helper script:
+
+```bash
+./scripts/install.sh
+```
+
+Or install manually:
+
 ```bash
 mkdir -p ~/.local/share/nemo-python/extensions
 cp nemo_tab_restore.py ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
@@ -61,6 +69,22 @@ NEMO_TAB_RESTORE_LOG=1 nemo &
 ```
 
 For normal use without debug logging, start Nemo without `NEMO_TAB_RESTORE_LOG`.
+
+## Uninstall
+
+Uninstall with the helper script:
+
+```bash
+./scripts/uninstall.sh
+```
+
+The uninstall script removes only the installed extension file. History and logs are kept.
+
+Or remove the installed extension manually:
+
+```bash
+rm ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
+```
 
 ## Usage
 
