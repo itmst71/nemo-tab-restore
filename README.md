@@ -30,13 +30,13 @@ Linux Mint usually ships Nemo by default, but the Python extension bindings and 
 
 On other Ubuntu-family releases, package names are expected to be similar. If installation fails, check the available package names with `apt search nemo-python` and `apt search gir1.2-nemo`.
 
-For openSUSE / Tumbleweed, the required packages are roughly equivalent to:
+openSUSE Tumbleweed:
 
-```text
-python3-nemo
-typelib-1_0-Nemo-3_0
-python3-gobject
+```bash
+sudo zypper install python3-nemo typelib-1_0-Nemo-3_0
 ```
+
+On Tumbleweed, `python3-nemo` currently pulls the matching Python GObject packages as dependencies, such as `python313-gobject`, `python313-gobject-Gdk`, and `python313-gobject-cairo`.
 
 ## Install
 
