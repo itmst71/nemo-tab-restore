@@ -36,7 +36,7 @@ openSUSE Tumbleweed:
 sudo zypper install python3-nemo typelib-1_0-Nemo-3_0
 ```
 
-On Tumbleweed, `python3-nemo` currently pulls the matching Python GObject packages as dependencies, such as `python313-gobject`, `python313-gobject-Gdk`, and `python313-gobject-cairo`.
+On Tumbleweed, `python3-nemo` currently pulls the matching Python GObject packages as dependencies.
 
 Arch Linux:
 
@@ -65,10 +65,10 @@ Restart Nemo:
 
 ```bash
 nemo -q
-NEMO_TAB_RESTORE_LOG=1 nemo &
+nemo &
 ```
 
-For normal use without debug logging, start Nemo without `NEMO_TAB_RESTORE_LOG`.
+You can also start Nemo normally from the desktop launcher after quitting it with `nemo -q`.
 
 ## Uninstall
 
@@ -137,6 +137,13 @@ Log file:
 ```bash
 NEMO_TAB_RESTORE_LOG=1 nemo
 NEMO_TAB_RESTORE_LOG=0 nemo
+```
+
+For debugging, start Nemo from a terminal with logging enabled:
+
+```bash
+nemo -q
+NEMO_TAB_RESTORE_LOG=1 nemo
 ```
 
 Enabled values:
@@ -296,11 +303,11 @@ When debugging GI import problems, check the distribution Python directly:
 /usr/bin/python3 -c 'import gi; print(gi.__file__)'
 ```
 
-## Design notes
+## Behavior details
 
-- The close shortcut saves the URI and returns `False` so Nemo can continue with the normal close action.
-- The restore shortcut pops a URI from history, restores it, and returns `True`.
-- There is no debounce. Each key press should count, matching browser-like behavior.
+- The close shortcut saves the current URI, then lets Nemo continue with the normal close action.
+- The restore shortcut pops a URI from history and opens it in the existing Nemo window.
+- Each key press is handled separately, matching browser-like behavior.
 - Consecutive duplicate URIs are not suppressed. The same folder can legitimately be open in multiple tabs.
 
 ## License
