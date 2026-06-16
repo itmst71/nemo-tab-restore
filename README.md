@@ -4,7 +4,7 @@
 
 Nemo Tab Restore is a `nemo-python` extension that adds browser-like closed-tab restoration to the Nemo file manager.
 
-It saves the current tab URI when a tab is closed with `Ctrl+W`, and restores the most recently closed tab with `Ctrl+Shift+T`. It does not depend on `xdotool`, `wmctrl`, or other X11-only automation tools, so it is intended to work on both Wayland and X11.
+It saves the current tab URI when a tab is closed with `Ctrl+W`, and restores the most recently closed tab with `Ctrl+Shift+T`.
 
 ## Features
 
@@ -37,6 +37,14 @@ sudo zypper install python3-nemo typelib-1_0-Nemo-3_0
 ```
 
 On Tumbleweed, `python3-nemo` currently pulls the matching Python GObject packages as dependencies, such as `python313-gobject`, `python313-gobject-Gdk`, and `python313-gobject-cairo`.
+
+Arch Linux:
+
+```bash
+sudo pacman -S nemo nemo-python
+```
+
+On Arch Linux, `nemo` currently pulls `python-gobject` and `python-cairo` as dependencies.
 
 ## Install
 
@@ -234,7 +242,6 @@ hooked window wid=0x... uri=file:///... title='Loading...'
   - tab context menu close
 - Full open-tab enumeration is not implemented.
 - This is a Nemo extension, not a Nautilus or Caja extension.
-- Wayland is supported because the extension does not use X11-only automation tools.
 
 ## Troubleshooting
 
