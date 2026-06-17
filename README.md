@@ -4,21 +4,20 @@
 
 Nemo Tab Restore is a `nemo-python` extension that adds browser-like closed-tab restoration to the Nemo file manager.
 
-It saves the current tab URI when a tab is closed with `Ctrl+W`, and restores the most recently closed tab with `Ctrl+Shift+T`.
+Tabs closed with `Ctrl+W` can be restored with `Ctrl+Shift+T`.
 
 ## Features
 
-- Saves the current tab URI when `Ctrl+W` or Nemo's configured close shortcut is pressed
-- Lets Nemo continue handling the normal close-tab action
+- Saves history for tabs closed with `Ctrl+W`
 - Restores the most recently closed tab with `Ctrl+Shift+T`
-- Persists history as JSON Lines
-- Checks local path existence before restoring `file://` URIs, and skips missing paths
-- Passes non-`file://` URIs directly to Nemo
-- Supports environment variables for logging and history size
+- Supports changing shortcuts through Nemo's standard accelerator mechanism
+- Supports configuring the history limit with an environment variable
 
 ## Requirements
 
-Linux Mint / Ubuntu family:
+In addition to Nemo itself, this extension needs the Python bindings that let Nemo load Python extensions, plus the GI / PyGObject packages used by those bindings. Some distributions pull part of this stack through the Nemo package itself, so the number of extra packages may vary by environment.
+
+### Linux Mint / Ubuntu family
 
 The following package names are confirmed on Linux Mint 22 and Ubuntu 24.04 / 26.04-family systems:
 
@@ -30,38 +29,38 @@ Linux Mint usually ships Nemo by default, but the Python extension bindings and 
 
 On other Ubuntu-family releases, package names are expected to be similar. If installation fails, check the available package names with `apt search nemo-python` and `apt search gir1.2-nemo`.
 
-openSUSE Tumbleweed:
+### openSUSE Tumbleweed
 
 ```bash
 sudo zypper install python3-nemo typelib-1_0-Nemo-3_0
 ```
 
-On Tumbleweed, `python3-nemo` currently pulls the matching Python GObject packages as dependencies.
+On Tumbleweed, installing `python3-nemo` also installs the matching Python GObject packages.
 
-Arch Linux:
+### Arch Linux
 
 ```bash
 sudo pacman -S nemo nemo-python
 ```
 
-On Arch Linux, `nemo` currently pulls `python-gobject` and `python-cairo` as dependencies.
+On Arch Linux, installing `nemo` also installs `python-gobject` and `python-cairo`.
 
 ## Install
 
-Install with the helper script:
-
-```bash
-./scripts/install.sh
-```
-
-Or install manually:
+Install manually:
 
 ```bash
 mkdir -p ~/.local/share/nemo-python/extensions
 cp nemo_tab_restore.py ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
 ```
 
-Restart Nemo:
+A helper script is also available to automate the commands above:
+
+```bash
+./scripts/install.sh
+```
+
+After installing, quit Nemo completely and start it again. Newly installed extensions are not loaded until Nemo is restarted.
 
 ```bash
 nemo -q
@@ -72,19 +71,19 @@ You can also start Nemo normally from the desktop launcher after quitting it wit
 
 ## Uninstall
 
-Uninstall with the helper script:
+Remove the installed extension manually:
+
+```bash
+rm ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
+```
+
+A helper script is also available to automate the command above:
 
 ```bash
 ./scripts/uninstall.sh
 ```
 
 The uninstall script removes only the installed extension file. History and logs are kept.
-
-Or remove the installed extension manually:
-
-```bash
-rm ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
-```
 
 ## Usage
 
@@ -94,7 +93,9 @@ rm ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
 Ctrl+W
 ```
 
-The extension saves the current tab URI to history, then returns `False` so Nemo can perform its normal close-tab action.
+The extension saves the current tab URI to history, then Nemo closes the tab normally.
+
+Tabs closed with mouse actions are not saved to history. See [Known limitations](#known-limitations) for details.
 
 ### Restore last closed tab
 
@@ -102,13 +103,15 @@ The extension saves the current tab URI to history, then returns `False` so Nemo
 Ctrl+Shift+T
 ```
 
-The extension pops the most recently closed URI from history and restores it in the existing Nemo window with:
+The extension pops the most recently closed URI from history and restores the tab.
+
+Internally, it opens the tab in the existing Nemo window with:
 
 ```bash
 nemo --existing-window --tabs URI
 ```
 
-The background context menu also includes `Restore Last Closed Tab`.
+Nemo's menu also includes `Restore Last Closed Tab`.
 
 ## Files
 
@@ -132,41 +135,23 @@ Log file:
 
 ## Configuration
 
+Configuration is done with environment variables. For a temporary setting, pass the variable when starting Nemo from a terminal. For persistent settings, add the variable to a suitable startup file for your shell or desktop environment, such as `~/.profile`.
+
 ### Logging
 
 ```bash
-NEMO_TAB_RESTORE_LOG=1 nemo
-NEMO_TAB_RESTORE_LOG=0 nemo
+NEMO_TAB_RESTORE_LOG=true nemo
+NEMO_TAB_RESTORE_LOG=false nemo
 ```
+
+Use `true` or `false` in normal use. Logging is disabled by default when the variable is not set.
 
 For debugging, start Nemo from a terminal with logging enabled:
 
 ```bash
 nemo -q
-NEMO_TAB_RESTORE_LOG=1 nemo
+NEMO_TAB_RESTORE_LOG=true nemo
 ```
-
-Enabled values:
-
-```text
-1
-true
-yes
-on
-debug
-```
-
-Disabled values:
-
-```text
-0
-false
-no
-off
-empty string
-```
-
-Logging is disabled by default.
 
 ### History size
 
@@ -186,9 +171,11 @@ Invalid values, empty values, and values below the minimum fall back to the defa
 
 ## Shortcuts
 
-The extension reads Nemo / GTK accel maps.
+No shortcut configuration is required by default. `Ctrl+W` saves closed-tab history, and `Ctrl+Shift+T` restores the most recently closed tab.
 
-Candidate paths:
+To change shortcuts, edit Nemo / GTK's accelerator file.
+
+The accelerator file location can vary by distribution and Nemo / GTK version. The extension checks these candidates:
 
 ```text
 $XDG_CONFIG_HOME/nemo/accels/nemo
@@ -200,37 +187,53 @@ $XDG_CONFIG_HOME/gtk-3.0/accels/nemo
 
 `$XDG_CONFIG_HOME` paths are checked first when the variable is set and non-empty.
 
-Close action:
+Quit Nemo before editing the accelerator file. If Nemo is still running, it may overwrite your changes when it exits.
 
-```text
-<Actions>/ShellActions/Close
+```bash
+nemo -q
 ```
 
-Default:
+In the accelerator file, lines starting with `;` are commented out.
 
-```text
-<Primary>w
+In GTK accelerator notation, `<Primary>` usually means the `Ctrl` key.
+
+To explicitly set the restore shortcut, add or edit this line in the accelerator file:
+
+```scheme
+(gtk_accel_path "<Actions>/NemoTabRestore/RestoreLastClosedTab" "<Primary><Shift>t")
 ```
 
-Restore action:
-
-```text
-<Actions>/NemoTabRestore/RestoreLastClosedTab
-```
-
-Default:
+This assigns:
 
 ```text
 <Primary><Shift>t
 ```
 
-This default intentionally follows the browser convention for restoring a closed tab. Nemo also defines `<Primary><Shift>t` as the default accelerator for `<Actions>/DirViewActions/OpenInNewTab`, which opens selected items in new tabs. If you rely on Nemo's original binding, change this extension's restore accelerator to another shortcut in the accel file.
+to this action:
 
-To explicitly set the restore shortcut, add this line to the Nemo accel file:
+```text
+<Actions>/NemoTabRestore/RestoreLastClosedTab
+```
+
+The close shortcut follows Nemo's existing close action:
 
 ```scheme
-(gtk_accel_path "<Actions>/NemoTabRestore/RestoreLastClosedTab" "<Primary><Shift>t")
+(gtk_accel_path "<Actions>/ShellActions/Close" "<Primary>w")
 ```
+
+This assigns:
+
+```text
+<Primary>w
+```
+
+to this action:
+
+```text
+<Actions>/ShellActions/Close
+```
+
+The restore shortcut default, `<Primary><Shift>t`, intentionally follows the browser convention for restoring a closed tab. Nemo also defines `<Primary><Shift>t` as the default accelerator for `<Actions>/DirViewActions/OpenInNewTab`, which opens selected items in new tabs. If you rely on Nemo's original binding, change this extension's restore accelerator to another shortcut in the accel file.
 
 ## Check
 
@@ -248,7 +251,7 @@ Start Nemo with logging enabled:
 nemo -q
 sleep 1
 rm -f ~/.cache/nemo-tab-restore/nemo-tab-restore.log
-NEMO_TAB_RESTORE_LOG=1 nemo &
+NEMO_TAB_RESTORE_LOG=true nemo &
 ```
 
 Inspect the log:
@@ -309,6 +312,7 @@ When debugging GI import problems, check the distribution Python directly:
 - The restore shortcut pops a URI from history and opens it in the existing Nemo window.
 - Each key press is handled separately, matching browser-like behavior.
 - Consecutive duplicate URIs are not suppressed. The same folder can legitimately be open in multiple tabs.
+- In the current behavior, closed-tab history is shared rather than tracked per window. If multiple Nemo windows are open, restore uses the most recently saved history entry.
 
 ## License
 
