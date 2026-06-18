@@ -11,8 +11,8 @@ Tabs closed with `Ctrl+W`, mouse actions, and similar close operations can be re
 - Saves history for tabs closed with `Ctrl+W`
 - Saves history for tabs closed with mouse actions or the File menu
 - Restores the most recently closed tab with `Ctrl+Shift+T`
-- Supports changing shortcuts through Nemo's standard shortcut configuration
-- Supports configuring the history limit with an environment variable
+- Supports changing shortcuts
+- Supports configuration through a configuration file or environment variables
 - Supports file-backed or in-memory history
 
 ## Requirements
@@ -151,54 +151,121 @@ Log file:
 ~/.cache/nemo-tab-restore/nemo-tab-restore.log
 ```
 
-## Configuration
-
-Configuration is done with environment variables. For a temporary setting, pass the variable when starting Nemo from a terminal. For persistent settings, add the variable to a suitable startup file for your shell or desktop environment, such as `~/.profile`.
-
-### Logging
-
-```bash
-NEMO_TAB_RESTORE_LOG=true nemo
-NEMO_TAB_RESTORE_LOG=false nemo
-```
-
-Use `true` or `false` in normal use. Logging is disabled by default when the variable is not set.
-
-For debugging, start Nemo from a terminal with logging enabled:
-
-```bash
-nemo -q
-NEMO_TAB_RESTORE_LOG=true nemo
-```
-
-### History size
-
-```bash
-NEMO_TAB_RESTORE_MAX_HISTORY=300 nemo
-```
-
-Defaults and limits:
+Configuration file:
 
 ```text
-default: 100
-min: 1
-max: 1000
+~/.config/nemo-tab-restore/config.env
 ```
 
-Invalid values, empty values, and values below the minimum fall back to the default. Values above the maximum are clamped to `1000`.
+## Configuration
 
-### History mode
+Configuration is done with environment variables or a configuration file. Environment variables are useful for temporary overrides. For persistent settings, use the configuration file so the values do not depend on how Nemo was started.
 
-```bash
-NEMO_TAB_RESTORE_HISTORY_MODE=file nemo
-NEMO_TAB_RESTORE_HISTORY_MODE=memory nemo
+### Priority
+
+Settings listed higher take precedence. For example, if the configuration file and an environment variable specify different values, the environment variable value is used.
+
+```text
+environment variables
+configuration file
+Nemo / GTK accelerator file (shortcuts only)
+defaults
+```
+
+### Environment Variables
+
+Environment variables are useful when starting Nemo from a terminal to try temporary settings.
+
+#### `NEMO_TAB_RESTORE_RESTORE_SHORTCUT`
+
+Sets this extension's restore shortcut.
+
+```env
+NEMO_TAB_RESTORE_RESTORE_SHORTCUT=Ctrl+Shift+T
+```
+
+The default is `Ctrl+Shift+T`. To use a different shortcut, specify a value such as `Ctrl+Shift+Y`.
+
+If you assign the same shortcut as a built-in Nemo action, the built-in action may be hidden. To adjust Nemo's built-in shortcuts too, see the [Shortcuts](#shortcuts) section below.
+
+#### `NEMO_TAB_RESTORE_MAX_HISTORY`
+
+Sets the maximum number of closed-tab history entries to keep.
+
+```env
+NEMO_TAB_RESTORE_MAX_HISTORY=100
+```
+
+The default is `100`, and the maximum is `1000`.
+
+#### `NEMO_TAB_RESTORE_HISTORY_MODE`
+
+Sets where closed-tab history is stored.
+
+```env
+NEMO_TAB_RESTORE_HISTORY_MODE=file
+NEMO_TAB_RESTORE_HISTORY_MODE=memory
 ```
 
 The default is `file`. Closed-tab history is saved to `~/.local/share/nemo-tab-restore/closed-tabs.jsonl`.
 
 When set to `memory`, history is kept only in memory while Nemo is running. It is lost when Nemo quits completely, and the history file is not read or written.
 
-Invalid values and empty values are treated as `file`.
+#### `NEMO_TAB_RESTORE_LOG`
+
+Configures debug logging.
+
+```env
+NEMO_TAB_RESTORE_LOG=true
+NEMO_TAB_RESTORE_LOG=false
+```
+
+Use `true` or `false` in normal use. Logging is disabled by default when the variable is not set.
+
+#### Temporary Startup Examples
+
+When starting Nemo from a terminal, place environment variables before the command to apply temporary settings:
+
+```bash
+NEMO_TAB_RESTORE_LOG=true nemo
+```
+
+You can also set multiple environment variables at once:
+
+```bash
+NEMO_TAB_RESTORE_LOG=true NEMO_TAB_RESTORE_MAX_HISTORY=300 nemo
+```
+
+### Configuration File
+
+The configuration file uses the same names and values as the environment variables above, written as `KEY=value`.
+
+If the configuration file does not exist, the extension creates it the first time it is loaded. All settings are created as commented-out examples. Uncomment only the settings you want to override.
+
+```text
+~/.config/nemo-tab-restore/config.env
+```
+
+Example:
+
+```env
+NEMO_TAB_RESTORE_MAX_HISTORY=300
+NEMO_TAB_RESTORE_HISTORY_MODE=memory
+NEMO_TAB_RESTORE_LOG=true
+NEMO_TAB_RESTORE_RESTORE_SHORTCUT=Ctrl+Shift+Y
+```
+
+The configuration file uses a `.env`-like format. It is not a full shell script.
+
+Supported format:
+
+```text
+KEY=value
+# comment
+blank lines
+```
+
+`export`, variable expansion, and complex shell quoting or escaping are not supported.
 
 ## Shortcuts
 
@@ -206,21 +273,11 @@ No shortcut configuration is required by default. `Ctrl+W` saves closed-tab hist
 
 This extension uses `Ctrl+Shift+T` to match the browser convention for restoring a closed tab. Nemo itself also uses `Ctrl+Shift+T` by default for `<Actions>/DirViewActions/OpenInNewTab`, which opens selected items in new tabs.
 
-You can decide which action keeps `Ctrl+Shift+T` by editing Nemo / GTK's accelerator file.
+To change only this extension's restore shortcut, you can also use an environment variable or the configuration file. See [`NEMO_TAB_RESTORE_RESTORE_SHORTCUT`](#nemo_tab_restore_restore_shortcut) for details.
 
-The accelerator file location can vary by distribution and Nemo / GTK version. The extension checks these candidates:
+To also change Nemo's built-in shortcuts, such as Open in New Tab, you need to edit Nemo / GTK's accelerator file.
 
-```text
-$XDG_CONFIG_HOME/nemo/accels/nemo
-$XDG_CONFIG_HOME/gtk-3.0/accels/nemo
-~/.config/nemo/accels/nemo
-~/.gnome2/accels/nemo
-~/.config/gtk-3.0/accels/nemo
-```
-
-`$XDG_CONFIG_HOME` paths are checked first when the variable is set and non-empty.
-
-If the accelerator file does not exist, you can create one manually, for example:
+If the accelerator file does not exist, you can create this path manually. See [Behavior details](#behavior-details) for other candidate paths.
 
 ```text
 ~/.config/nemo/accels/nemo
@@ -232,11 +289,9 @@ Quit Nemo before editing the accelerator file. If Nemo is still running, it may 
 nemo -q
 ```
 
-In the accelerator file, lines starting with `;` are commented out.
-
 In GTK accelerator notation, `<Primary>` usually means the `Ctrl` key.
 
-Example: change tab restore to `Ctrl+Shift+Y`:
+Example: change tab restore to `Ctrl+Shift+Y` through the accelerator file:
 
 ```scheme
 (gtk_accel_path "<Actions>/NemoTabRestore/RestoreLastClosedTab" "<Primary><Shift>y")
@@ -323,6 +378,18 @@ When debugging GI import problems, check the distribution Python directly:
 - Consecutive duplicate URIs are not suppressed. The same folder can legitimately be open in multiple tabs.
 - When closing an inactive tab with a mouse action before its URI is known, the extension briefly switches to that tab to capture the URI, then returns to the previously active tab after the close.
 - In the current behavior, closed-tab history is shared rather than tracked per window. If multiple Nemo windows are open, restore uses the most recently saved history entry.
+
+The accelerator file location can vary by distribution and Nemo / GTK version. The extension checks these candidates:
+
+```text
+$XDG_CONFIG_HOME/nemo/accels/nemo
+$XDG_CONFIG_HOME/gtk-3.0/accels/nemo
+~/.config/nemo/accels/nemo
+~/.gnome2/accels/nemo
+~/.config/gtk-3.0/accels/nemo
+```
+
+`$XDG_CONFIG_HOME` paths are checked first when the variable is set and non-empty.
 
 ## License
 

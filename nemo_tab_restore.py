@@ -15,6 +15,9 @@
 # Log:
 #   ~/.cache/nemo-tab-restore/nemo-tab-restore.log
 #
+# Config:
+#   ~/.config/nemo-tab-restore/config.env
+#
 # Requirements:
 #   - nemo-python / python3-nemo
 #   - Nemo GI typelib
@@ -46,6 +49,13 @@ DATA_DIR = os.path.expanduser("~/.local/share/nemo-tab-restore")
 CACHE_DIR = os.path.expanduser("~/.cache/nemo-tab-restore")
 HISTORY_FILE = os.path.join(DATA_DIR, "closed-tabs.jsonl")
 LOG_FILE = os.path.join(CACHE_DIR, "nemo-tab-restore.log")
+
+_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME")
+if _CONFIG_HOME and _CONFIG_HOME.strip():
+    CONFIG_DIR = os.path.join(os.path.expanduser(_CONFIG_HOME.strip()), APP_NAME)
+else:
+    CONFIG_DIR = os.path.expanduser("~/.config/nemo-tab-restore")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.env")
 
 MAX_HISTORY_DEFAULT = 100
 MAX_HISTORY_MIN = 1
@@ -95,8 +105,37 @@ CLOSE_ACCEL_DEFAULT = "<Primary>w"
 #   (gtk_accel_path "<Actions>/NemoTabRestore/RestoreLastClosedTab" "<Primary><Shift>t")
 RESTORE_ACCEL_PATH = "<Actions>/NemoTabRestore/RestoreLastClosedTab"
 RESTORE_ACCEL_DEFAULT = "<Primary><Shift>t"
+RESTORE_SHORTCUT_ENV = "NEMO_TAB_RESTORE_RESTORE_SHORTCUT"
+
+CONFIG_TEMPLATE = """# Nemo Tab Restore configuration
+#
+# Uncomment only the settings you want to override.
+# Environment variables with the same names take precedence.
+#
+# Supported format:
+#   KEY=value
+#   # comment
+#   blank lines
+#
+# This file is not a shell script. export, variable expansion, and complex
+# shell quoting are not supported.
+
+# NEMO_TAB_RESTORE_LOG=false
+# NEMO_TAB_RESTORE_MAX_HISTORY=100
+# NEMO_TAB_RESTORE_HISTORY_MODE=file
+# NEMO_TAB_RESTORE_RESTORE_SHORTCUT=Ctrl+Shift+T
+
+# The close shortcut follows Nemo's own Close action.
+# Change <Actions>/ShellActions/Close in Nemo's accelerator file if needed.
+"""
 
 _ACCEL_CACHE = {
+    "path": None,
+    "mtime": None,
+    "values": {},
+}
+
+_CONFIG_CACHE = {
     "path": None,
     "mtime": None,
     "values": {},
@@ -117,13 +156,94 @@ _HOOKED_FILE_MENU_ITEMS = set()
 
 
 def ensure_dirs():
+    ensure_config_file()
     if get_history_mode() == "file":
         os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(CACHE_DIR, exist_ok=True)
 
 
+def ensure_config_file():
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        if not os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                f.write(CONFIG_TEMPLATE)
+    except Exception:
+        try:
+            sys.stderr.write("Failed to create {}:\n{}\n".format(
+                CONFIG_FILE,
+                traceback.format_exc(),
+            ))
+        except Exception:
+            pass
+
+
+def parse_config_file():
+    ensure_config_file()
+
+    try:
+        st = os.stat(CONFIG_FILE)
+        mtime = st.st_mtime
+    except Exception:
+        mtime = None
+
+    if (
+        _CONFIG_CACHE.get("path") == CONFIG_FILE
+        and _CONFIG_CACHE.get("mtime") == mtime
+    ):
+        return _CONFIG_CACHE.get("values", {})
+
+    values = {}
+
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                if not re.match(r"^NEMO_TAB_RESTORE_[A-Z0-9_]+$", key):
+                    continue
+
+                if (
+                    len(value) >= 2
+                    and value[0] == value[-1]
+                    and value[0] in ("'", '"')
+                ):
+                    value = value[1:-1]
+
+                values[key] = value
+    except FileNotFoundError:
+        pass
+    except Exception:
+        try:
+            sys.stderr.write("Failed to parse {}:\n{}\n".format(
+                CONFIG_FILE,
+                traceback.format_exc(),
+            ))
+        except Exception:
+            pass
+
+    _CONFIG_CACHE["path"] = CONFIG_FILE
+    _CONFIG_CACHE["mtime"] = mtime
+    _CONFIG_CACHE["values"] = values
+    return values
+
+
+def get_setting_value(name):
+    if name in os.environ:
+        return os.environ.get(name)
+    return parse_config_file().get(name)
+
+
 def log_enabled():
-    value = os.environ.get("NEMO_TAB_RESTORE_LOG")
+    value = get_setting_value("NEMO_TAB_RESTORE_LOG")
     if value is None:
         return LOG_ENABLED_DEFAULT
 
@@ -137,7 +257,7 @@ def log_enabled():
 
 
 def get_history_mode():
-    value = os.environ.get("NEMO_TAB_RESTORE_HISTORY_MODE")
+    value = get_setting_value("NEMO_TAB_RESTORE_HISTORY_MODE")
     if value is None:
         return HISTORY_MODE_DEFAULT
 
@@ -171,7 +291,7 @@ def log_exception(context):
 
 
 def get_max_history():
-    value = os.environ.get("NEMO_TAB_RESTORE_MAX_HISTORY")
+    value = get_setting_value("NEMO_TAB_RESTORE_MAX_HISTORY")
     if value is None or value.strip() == "":
         return MAX_HISTORY_DEFAULT
 
@@ -275,6 +395,86 @@ def get_accel_string(path, default_value):
     return value or ""
 
 
+def shortcut_to_accel(shortcut):
+    if not shortcut:
+        return ""
+
+    shortcut = str(shortcut).strip()
+    if not shortcut:
+        return ""
+
+    if shortcut.startswith("<"):
+        return shortcut
+
+    parts = [part.strip() for part in shortcut.split("+") if part.strip()]
+    if not parts:
+        return ""
+
+    mods = []
+    key = None
+    mod_names = {
+        "ctrl": "<Primary>",
+        "control": "<Primary>",
+        "primary": "<Primary>",
+        "shift": "<Shift>",
+        "alt": "<Alt>",
+        "super": "<Super>",
+    }
+    key_names = {
+        "enter": "Return",
+        "esc": "Escape",
+        "escape": "Escape",
+        "space": "space",
+        "tab": "Tab",
+        "backspace": "BackSpace",
+        "delete": "Delete",
+        "del": "Delete",
+        "insert": "Insert",
+        "ins": "Insert",
+        "home": "Home",
+        "end": "End",
+        "pageup": "Page_Up",
+        "page_up": "Page_Up",
+        "pagedown": "Page_Down",
+        "page_down": "Page_Down",
+        "left": "Left",
+        "right": "Right",
+        "up": "Up",
+        "down": "Down",
+        "plus": "plus",
+        "minus": "minus",
+    }
+
+    for part in parts:
+        lowered = part.lower().replace(" ", "")
+        mod = mod_names.get(lowered)
+        if mod:
+            if mod not in mods:
+                mods.append(mod)
+            continue
+        key = part
+
+    if not key:
+        return ""
+
+    key_lookup = key.lower().replace(" ", "").replace("-", "_")
+    key = key_names.get(key_lookup, key)
+    if len(key) == 1:
+        key = key.lower()
+
+    return "{}{}".format("".join(mods), key)
+
+
+def get_restore_accel_string():
+    value = get_setting_value(RESTORE_SHORTCUT_ENV)
+    if value is not None:
+        accel = shortcut_to_accel(value)
+        if parse_accel(accel):
+            return accel
+
+    return get_accel_string(RESTORE_ACCEL_PATH, RESTORE_ACCEL_DEFAULT)
+
+
 def parse_accel(accel_string):
     if not accel_string:
         return None
@@ -296,8 +496,7 @@ def mods_to_flags(state):
     return ctrl, shift, alt, super_
 
 
-def event_matches_accel(event, accel_path, default_accel):
-    accel_string = get_accel_string(accel_path, default_accel)
+def event_matches_accel_string(event, accel_string):
     parsed = parse_accel(accel_string)
     if not parsed:
         return False
@@ -328,12 +527,17 @@ def event_matches_accel(event, accel_path, default_accel):
     )
 
 
+def event_matches_accel(event, accel_path, default_accel):
+    accel_string = get_accel_string(accel_path, default_accel)
+    return event_matches_accel_string(event, accel_string)
+
+
 def is_close_shortcut(event):
     return event_matches_accel(event, CLOSE_ACCEL_PATH, CLOSE_ACCEL_DEFAULT)
 
 
 def is_restore_shortcut(event):
-    return event_matches_accel(event, RESTORE_ACCEL_PATH, RESTORE_ACCEL_DEFAULT)
+    return event_matches_accel_string(event, get_restore_accel_string())
 
 
 def window_key(window):
@@ -1175,6 +1379,7 @@ class NemoTabRestore(GObject.GObject,
             os.getpid(),
             os.environ.get("XDG_SESSION_TYPE", ""),
         ))
+        log("config file -> {}".format(CONFIG_FILE))
         log("accels file -> {}".format(get_accels_file()))
         log("accel close {} -> {!r}".format(
             CLOSE_ACCEL_PATH,
@@ -1184,6 +1389,7 @@ class NemoTabRestore(GObject.GObject,
             RESTORE_ACCEL_PATH,
             get_accel_string(RESTORE_ACCEL_PATH, RESTORE_ACCEL_DEFAULT),
         ))
+        log("shortcut restore -> {!r}".format(get_restore_accel_string()))
         log("history mode -> {}".format(get_history_mode()))
         log("max history -> {}".format(get_max_history()))
 
