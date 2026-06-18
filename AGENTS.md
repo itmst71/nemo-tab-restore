@@ -365,12 +365,12 @@ Optional before public release:
 
 ## Known limitations to preserve in README
 
-* Only keyboard close shortcuts are tracked.
-* Mouse close operations are not tracked:
+* These close operations are tracked:
 
+  * keyboard close shortcut
   * tab close button
   * middle-click tab close
-  * tab context menu close
+* Tab context menu close is not tracked.
 * Full open-tab enumeration is not implemented.
 * This is a Nemo extension, not Nautilus or Caja.
 * Wayland is supported because no X11 automation tool is used.

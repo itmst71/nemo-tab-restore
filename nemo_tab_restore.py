@@ -35,7 +35,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Nemo", "3.0")
 
-from gi.repository import GObject, Gtk, Gdk, Nemo
+from gi.repository import GObject, Gtk, Gdk, GLib, Nemo
 
 
 APP_NAME = "nemo-tab-restore"
@@ -101,6 +101,12 @@ _ACCEL_CACHE = {
 
 # window key -> {"uri": str, "title": str, ...}
 _WINDOWS = {}
+
+# widget/page key -> state
+_HOOKED_TAB_WIDGETS = set()
+_SLOT_URIS = {}
+_PENDING_TAB_CLOSES = {}
+_RESTORE_AFTER_TAB_CLOSE = {}
 
 
 def ensure_dirs():
@@ -339,6 +345,312 @@ def window_key(window):
         return "id:{}".format(id(window))
 
 
+def object_key(obj):
+    try:
+        r = repr(obj)
+        m = re.search(r"\(([A-Za-z0-9_]+) at (0x[0-9a-fA-F]+)\)", r)
+        if m:
+            return "{}:{}".format(m.group(1), m.group(2))
+        m = re.search(r" object at (0x[0-9a-fA-F]+)", r)
+        if m:
+            return "{}:{}".format(obj.__class__.__name__, m.group(1))
+    except Exception:
+        pass
+
+    try:
+        return "hash:{}".format(hash(obj))
+    except Exception:
+        return "id:{}".format(id(obj))
+
+
+def iter_widget_tree(widget, depth=0, limit=6):
+    if depth > limit:
+        return
+
+    yield depth, widget
+
+    if not isinstance(widget, Gtk.Container):
+        return
+
+    try:
+        children = widget.get_children()
+    except Exception:
+        return
+
+    for child in children:
+        yield from iter_widget_tree(child, depth + 1, limit)
+
+
+def is_close_button_widget(widget):
+    try:
+        return widget.get_name() == "nemo-tab-close-button"
+    except Exception:
+        return False
+
+
+def is_close_button_descendant(widget):
+    probe = widget
+    while probe is not None:
+        if is_close_button_widget(probe):
+            return True
+        try:
+            probe = probe.get_parent()
+        except Exception:
+            return False
+    return False
+
+
+def tab_label_at_point(notebook, x, y):
+    try:
+        n_pages = notebook.get_n_pages()
+        for index in range(n_pages):
+            page = notebook.get_nth_page(index)
+            if page is None:
+                continue
+
+            tab_label = notebook.get_tab_label(page)
+            if tab_label is None:
+                continue
+
+            alloc = tab_label.get_allocation()
+            if (
+                alloc.x <= x < alloc.x + alloc.width
+                and alloc.y <= y < alloc.y + alloc.height
+            ):
+                return page
+    except Exception:
+        log_exception("tab_label_at_point")
+
+    return None
+
+
+def cleanup_pending_tab_closes():
+    cutoff = now() - 5
+    for key, item in list(_PENDING_TAB_CLOSES.items()):
+        if item.get("at", 0) < cutoff:
+            _PENDING_TAB_CLOSES.pop(key, None)
+
+
+def remember_current_slots(window, uri, title=""):
+    uri = normalize_uri(uri)
+    if not uri:
+        return
+
+    try:
+        for _depth, widget in iter_widget_tree(window):
+            if not isinstance(widget, Gtk.Notebook):
+                continue
+
+            page_num = widget.get_current_page()
+            if page_num < 0:
+                continue
+
+            page = widget.get_nth_page(page_num)
+            if page is None:
+                continue
+
+            _SLOT_URIS[object_key(page)] = {
+                "uri": uri,
+                "title": title or uri_to_display(uri),
+            }
+    except Exception:
+        log_exception("remember_current_slots")
+
+
+def restore_active_page_after_tab_close(notebook, removed_page):
+    try:
+        notebook_key = object_key(notebook)
+        restore = _RESTORE_AFTER_TAB_CLOSE.get(notebook_key)
+        if not restore or restore.get("target_key") != object_key(removed_page):
+            return
+
+        restore_page = restore.get("page")
+        restore_key = restore.get("page_key")
+
+        def do_restore():
+            try:
+                n_pages = notebook.get_n_pages()
+                for index in range(n_pages):
+                    page = notebook.get_nth_page(index)
+                    if page is restore_page or object_key(page) == restore_key:
+                        notebook.set_current_page(index)
+                        log("restored active tab after tab close page={}".format(index))
+                        return False
+            except Exception:
+                log_exception("restore active tab")
+            finally:
+                _RESTORE_AFTER_TAB_CLOSE.pop(notebook_key, None)
+
+            return False
+
+        GLib.idle_add(do_restore)
+    except Exception:
+        log_exception("restore_active_page_after_tab_close")
+
+
+def prepare_tab_close(notebook, page, event, event_widget=None):
+    try:
+        button = getattr(event, "button", None)
+        close_button_press = (
+            button == 1
+            and event_widget is not None
+            and is_close_button_descendant(event_widget)
+        )
+        if button != 2 and not close_button_press:
+            return
+
+        if page is None:
+            return
+
+        page_num = notebook.page_num(page)
+        if page_num < 0:
+            return
+
+        page_key = object_key(page)
+        cleanup_pending_tab_closes()
+        if page_key in _PENDING_TAB_CLOSES:
+            return
+
+        current_page_num = notebook.get_current_page()
+        current_page = notebook.get_nth_page(current_page_num) if current_page_num >= 0 else None
+
+        item = _SLOT_URIS.get(page_key)
+
+        if not item and current_page is not None and current_page is not page:
+            # Nemo exposes the current location through get_widget(), so an
+            # unseen inactive tab needs to become current once before closing.
+            _RESTORE_AFTER_TAB_CLOSE[object_key(notebook)] = {
+                "target_key": page_key,
+                "page": current_page,
+                "page_key": object_key(current_page),
+            }
+
+            notebook.set_current_page(page_num)
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+
+            item = _SLOT_URIS.get(page_key)
+
+        if not item:
+            return
+
+        uri = item.get("uri")
+        title = item.get("title") or uri_to_display(uri)
+        if push_history(uri, title=title):
+            _PENDING_TAB_CLOSES[page_key] = {"at": now(), "uri": uri}
+
+    except Exception:
+        log_exception("prepare_tab_close")
+
+
+def on_notebook_button_press(notebook, event):
+    try:
+        if getattr(event, "button", None) != 2:
+            return False
+
+        page = tab_label_at_point(
+            notebook,
+            getattr(event, "x", -1),
+            getattr(event, "y", -1),
+        )
+        prepare_tab_close(notebook, page, event, event_widget=notebook)
+    except Exception:
+        log_exception("on_notebook_button_press")
+
+    return False
+
+
+def on_tab_widget_button_press(widget, event, notebook, page):
+    try:
+        prepare_tab_close(notebook, page, event, event_widget=widget)
+    except Exception:
+        log_exception("on_tab_widget_button_press")
+
+    return False
+
+
+def on_notebook_page_removed(notebook, page, _page_num):
+    try:
+        page_key = object_key(page)
+        _PENDING_TAB_CLOSES.pop(page_key, None)
+        _SLOT_URIS.pop(page_key, None)
+        restore_active_page_after_tab_close(notebook, page)
+    except Exception:
+        log_exception("on_notebook_page_removed")
+
+
+def hook_tab_label_tree(notebook, page, index):
+    try:
+        tab_label = notebook.get_tab_label(page)
+        if tab_label is None:
+            return
+
+        hooked = 0
+        for _depth, widget in iter_widget_tree(tab_label, limit=3):
+            key = object_key(widget)
+            if key in _HOOKED_TAB_WIDGETS:
+                continue
+            _HOOKED_TAB_WIDGETS.add(key)
+            widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            widget.connect("button-press-event", on_tab_widget_button_press, notebook, page)
+            hooked += 1
+
+        if hooked:
+            log("hooked tab label index={} page={} widgets={}".format(index, object_key(page), hooked))
+    except Exception:
+        log_exception("hook_tab_label_tree")
+
+
+def hook_notebook(notebook):
+    try:
+        notebook_key = object_key(notebook)
+        if notebook_key not in _HOOKED_TAB_WIDGETS:
+            _HOOKED_TAB_WIDGETS.add(notebook_key)
+            notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            notebook.connect("button-press-event", on_notebook_button_press)
+            notebook.connect("page-removed", on_notebook_page_removed)
+            log("hooked notebook {}".format(notebook_key))
+
+        n_pages = notebook.get_n_pages()
+        for index in range(n_pages):
+            page = notebook.get_nth_page(index)
+            if page is not None:
+                hook_tab_label_tree(notebook, page, index)
+    except Exception:
+        log_exception("hook_notebook")
+
+
+def hook_tab_widgets(window):
+    try:
+        for _depth, widget in iter_widget_tree(window):
+            if isinstance(widget, Gtk.Notebook):
+                hook_notebook(widget)
+    except Exception:
+        log_exception("hook_tab_widgets")
+
+
+def forget_window_tab_state(window):
+    try:
+        for _depth, widget in iter_widget_tree(window):
+            if not isinstance(widget, Gtk.Notebook):
+                continue
+
+            notebook_key = object_key(widget)
+            _RESTORE_AFTER_TAB_CLOSE.pop(notebook_key, None)
+
+            n_pages = widget.get_n_pages()
+            for index in range(n_pages):
+                page = widget.get_nth_page(index)
+                if page is None:
+                    continue
+
+                page_key = object_key(page)
+                _SLOT_URIS.pop(page_key, None)
+                _PENDING_TAB_CLOSES.pop(page_key, None)
+    except Exception:
+        log_exception("forget_window_tab_state")
+
+
 def uri_to_display(uri):
     if not uri:
         return ""
@@ -549,6 +861,7 @@ def on_key_press(window, event):
 def on_window_destroy(window):
     try:
         wid = window_key(window)
+        forget_window_tab_state(window)
         _WINDOWS.pop(wid, None)
         log("window destroy wid={}".format(wid))
     except Exception:
@@ -575,9 +888,7 @@ def ensure_window_hooked(window, uri=None):
             _WINDOWS[wid]["destroy_handler_id"] = destroy_id
 
             log("hooked window wid={} uri={} title={!r}".format(wid, uri, title))
-            return
-
-        if uri:
+        elif uri:
             old_uri = _WINDOWS[wid].get("uri")
             new_uri = normalize_uri(uri)
             if new_uri and old_uri != new_uri:
@@ -586,6 +897,9 @@ def ensure_window_hooked(window, uri=None):
 
         if title:
             _WINDOWS[wid]["title"] = title
+
+        remember_current_slots(window, _WINDOWS[wid].get("uri"), _WINDOWS[wid].get("title", ""))
+        hook_tab_widgets(window)
 
     except Exception:
         log_exception("ensure_window_hooked")

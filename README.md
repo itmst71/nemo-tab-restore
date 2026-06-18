@@ -4,11 +4,12 @@
 
 Nemo Tab Restore is a `nemo-python` extension that adds browser-like closed-tab restoration to the Nemo file manager.
 
-Tabs closed with `Ctrl+W` can be restored with `Ctrl+Shift+T`.
+Tabs closed with `Ctrl+W` or mouse actions can be restored with `Ctrl+Shift+T`.
 
 ## Features
 
 - Saves history for tabs closed with `Ctrl+W`
+- Saves history for tabs closed with the tab close button or middle-click
 - Restores the most recently closed tab with `Ctrl+Shift+T`
 - Supports changing shortcuts through Nemo's standard accelerator mechanism
 - Supports configuring the history limit with an environment variable
@@ -89,13 +90,15 @@ The uninstall script removes only the installed extension file. History and logs
 
 ### Close tab
 
-```text
-Ctrl+W
-```
+The extension saves the closed tab URI to history for these close operations:
 
-The extension saves the current tab URI to history, then Nemo closes the tab normally.
+- `Ctrl+W`
+- tab close button
+- middle-click on a tab
 
-Tabs closed with mouse actions are not saved to history. See [Known limitations](#known-limitations) for details.
+After saving the URI, Nemo closes the tab normally.
+
+Closing a tab from the tab context menu is currently out of scope. See [Known limitations](#known-limitations) for details.
 
 ### Restore last closed tab
 
@@ -268,12 +271,7 @@ hooked window wid=0x... uri=file:///... title='Loading...'
 
 ## Known limitations
 
-- Only keyboard close shortcuts are tracked.
-- Mouse-based tab close operations are not tracked.
-- Out of scope operations:
-  - tab close button
-  - middle-click tab close
-  - tab context menu close
+- Closing a tab from the tab context menu is not saved to history.
 - Full open-tab enumeration is not implemented.
 - This is a Nemo extension, not a Nautilus or Caja extension.
 
@@ -312,6 +310,7 @@ When debugging GI import problems, check the distribution Python directly:
 - The restore shortcut pops a URI from history and opens it in the existing Nemo window.
 - Each key press is handled separately, matching browser-like behavior.
 - Consecutive duplicate URIs are not suppressed. The same folder can legitimately be open in multiple tabs.
+- When closing an inactive tab with the tab close button or middle-click before its URI is known, the extension briefly switches to that tab to capture the URI, then returns to the previously active tab after the close.
 - In the current behavior, closed-tab history is shared rather than tracked per window. If multiple Nemo windows are open, restore uses the most recently saved history entry.
 
 ## License
