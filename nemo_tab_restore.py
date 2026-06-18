@@ -1149,6 +1149,17 @@ def ensure_window_hooked(window, uri=None):
         log_exception("ensure_window_hooked")
 
 
+def get_restore_menu_icon():
+    try:
+        theme = Gtk.IconTheme.get_default()
+        if theme is not None and theme.has_icon("xsi-edit-undo-symbolic"):
+            return "xsi-edit-undo-symbolic"
+    except Exception:
+        log_exception("get_restore_menu_icon")
+
+    return None
+
+
 class NemoTabRestore(GObject.GObject,
                      Nemo.LocationWidgetProvider,
                      Nemo.MenuProvider):
@@ -1206,12 +1217,16 @@ class NemoTabRestore(GObject.GObject,
 
             ensure_window_hooked(window, uri)
 
-            restore_item = Nemo.MenuItem(
-                name="NemoTabRestore::restore_last_closed_tab",
-                label="Restore Last Closed Tab",
-                tip="Restore the most recently closed Nemo tab",
-                icon="edit-undo",
-            )
+            restore_item_kwargs = {
+                "name": "NemoTabRestore::restore_last_closed_tab",
+                "label": "Restore Last Closed Tab",
+                "tip": "Restore the most recently closed Nemo tab",
+            }
+            restore_icon = get_restore_menu_icon()
+            if restore_icon:
+                restore_item_kwargs["icon"] = restore_icon
+
+            restore_item = Nemo.MenuItem(**restore_item_kwargs)
 
             def on_restore(_item):
                 try:
