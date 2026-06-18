@@ -4,12 +4,12 @@
 
 Nemo Tab Restore is a `nemo-python` extension that adds browser-like closed-tab restoration to the Nemo file manager.
 
-Tabs closed with `Ctrl+W` or mouse actions can be restored with `Ctrl+Shift+T`.
+Tabs closed with `Ctrl+W`, mouse actions, and similar close operations can be restored with `Ctrl+Shift+T`.
 
 ## Features
 
 - Saves history for tabs closed with `Ctrl+W`
-- Saves history for tabs closed with the tab close button or middle-click
+- Saves history for tabs closed with mouse actions or the File menu
 - Restores the most recently closed tab with `Ctrl+Shift+T`
 - Supports changing shortcuts through Nemo's standard accelerator mechanism
 - Supports configuring the history limit with an environment variable
@@ -97,6 +97,7 @@ The extension saves the closed tab URI to history for these close operations:
 - tab close button
 - middle-click on a tab
 - tab context menu close
+- File menu Close
 
 After saving the URI, Nemo closes the tab normally.
 

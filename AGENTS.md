@@ -381,6 +381,7 @@ Optional before public release:
   * tab close button
   * middle-click tab close
   * tab context menu close
+  * File menu Close
 * Full open-tab enumeration is not implemented.
 * This is a Nemo extension, not Nautilus or Caja.
 * Wayland is supported because no X11 automation tool is used.

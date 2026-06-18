@@ -109,8 +109,10 @@ _HOOKED_TAB_WIDGETS = set()
 _SLOT_URIS = {}
 _PENDING_TAB_CLOSES = {}
 _PENDING_CONTEXT_TAB_CLOSES = {}
+_PENDING_FILE_MENU_CLOSE = None
 _RESTORE_AFTER_TAB_CLOSE = {}
 _MEMORY_HISTORY = []
+_HOOKED_FILE_MENU_ITEMS = set()
 
 
 def ensure_dirs():
@@ -453,6 +455,84 @@ def tab_label_at_point(notebook, x, y):
     return None
 
 
+def menu_item_label(item):
+    try:
+        label = item.get_label()
+        if label:
+            return label
+    except Exception:
+        pass
+
+    labels = []
+    try:
+        for _depth, widget in iter_widget_tree(item, limit=4):
+            if isinstance(widget, Gtk.Label):
+                text = widget.get_text()
+                if text:
+                    labels.append(text)
+    except Exception:
+        pass
+
+    return " / ".join(labels)
+
+
+def menu_label_matches(label, expected):
+    return label.replace("_", "").strip().lower() == expected
+
+
+def on_file_close_menu_activate(_item):
+    try:
+        global _PENDING_FILE_MENU_CLOSE
+        item = _PENDING_FILE_MENU_CLOSE
+        _PENDING_FILE_MENU_CLOSE = None
+
+        if not item:
+            log("file close menu activated but no tab candidate")
+            return
+
+        if item.get("at", 0) < now() - 3:
+            log("file close menu candidate expired uri={}".format(item.get("uri")))
+            return
+
+        push_history(item.get("uri"), title=item.get("title"))
+    except Exception:
+        log_exception("on_file_close_menu_activate")
+
+
+def hook_file_menu_widgets(window):
+    try:
+        for _depth, widget in iter_widget_tree(window, limit=10):
+            if not isinstance(widget, Gtk.MenuBar):
+                continue
+
+            for child in widget.get_children():
+                if not isinstance(child, Gtk.MenuItem):
+                    continue
+
+                if not menu_label_matches(menu_item_label(child), "file"):
+                    continue
+
+                submenu = child.get_submenu()
+                if not isinstance(submenu, Gtk.Menu):
+                    continue
+
+                for item in submenu.get_children():
+                    if not isinstance(item, Gtk.MenuItem):
+                        continue
+                    if not menu_label_matches(menu_item_label(item), "close"):
+                        continue
+
+                    item_key = object_key(item)
+                    if item_key in _HOOKED_FILE_MENU_ITEMS:
+                        continue
+
+                    _HOOKED_FILE_MENU_ITEMS.add(item_key)
+                    item.connect("activate", on_file_close_menu_activate)
+                    log("hooked file close menu item {}".format(item_key))
+    except Exception:
+        log_exception("hook_file_menu_widgets")
+
+
 def cleanup_pending_tab_closes():
     cutoff = now() - 5
     for key, item in list(_PENDING_TAB_CLOSES.items()):
@@ -686,6 +766,8 @@ def on_tab_widget_button_press(widget, event, notebook, page):
 
 
 def on_notebook_page_removed(notebook, page, _page_num):
+    global _PENDING_FILE_MENU_CLOSE
+
     try:
         page_key = object_key(page)
         context_item = _PENDING_CONTEXT_TAB_CLOSES.pop(page_key, None)
@@ -695,6 +777,16 @@ def on_notebook_page_removed(notebook, page, _page_num):
             and context_item.get("notebook") == notebook_restore_key(notebook)
         ):
             push_history(context_item.get("uri"), title=context_item.get("title"))
+        elif page_key not in _PENDING_TAB_CLOSES:
+            item = _SLOT_URIS.get(page_key)
+            if item:
+                uri = normalize_uri(item.get("uri"))
+                if uri:
+                    _PENDING_FILE_MENU_CLOSE = {
+                        "at": now(),
+                        "uri": uri,
+                        "title": item.get("title") or uri_to_title(uri),
+                    }
         _PENDING_TAB_CLOSES.pop(page_key, None)
         _SLOT_URIS.pop(page_key, None)
         restore_active_page_after_tab_close(notebook, page)
@@ -1051,6 +1143,7 @@ def ensure_window_hooked(window, uri=None):
 
         remember_current_slots(window, _WINDOWS[wid].get("uri"), _WINDOWS[wid].get("title", ""))
         hook_tab_widgets(window)
+        hook_file_menu_widgets(window)
 
     except Exception:
         log_exception("ensure_window_hooked")
