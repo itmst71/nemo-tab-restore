@@ -11,7 +11,7 @@ Tabs closed with `Ctrl+W`, mouse actions, and similar close operations can be re
 - Saves history for tabs closed with `Ctrl+W`
 - Saves history for tabs closed with mouse actions or the File menu
 - Restores the most recently closed tab with `Ctrl+Shift+T`
-- Supports changing shortcuts through Nemo's standard accelerator mechanism
+- Supports changing shortcuts through Nemo's standard shortcut configuration
 - Supports configuring the history limit with an environment variable
 - Supports file-backed or in-memory history
 
@@ -19,17 +19,25 @@ Tabs closed with `Ctrl+W`, mouse actions, and similar close operations can be re
 
 In addition to Nemo itself, this extension needs the Python bindings that let Nemo load Python extensions, plus the GI / PyGObject packages used by those bindings. Some distributions pull part of this stack through the Nemo package itself, so the number of extra packages may vary by environment.
 
-### Linux Mint / Ubuntu family
+### Linux Mint
 
-The following package names are confirmed on Linux Mint 22 and Ubuntu 24.04 / 26.04-family systems:
+On Linux Mint 22.3 Cinnamon, this extension has been confirmed to work without installing additional packages. In the tested default environment, `python-nemo`, `gir1.2-nemo-3.0`, `python3-gi`, and `python3-gi-cairo` were already available.
+
+Try the install steps first. If Nemo does not load the extension after restarting, check the related packages:
+
+```bash
+dpkg -l python-nemo gir1.2-nemo-3.0 python3-gi python3-gi-cairo
+```
+
+### Ubuntu family
+
+The following package names are confirmed on Ubuntu 24.04-family systems:
 
 ```bash
 sudo apt install nemo-python gir1.2-nemo-3.0 python3-gi python3-gi-cairo
 ```
 
-Linux Mint usually ships Nemo by default, but the Python extension bindings and GI packages may still be needed.
-
-On other Ubuntu-family releases, package names are expected to be similar. If installation fails, check the available package names with `apt search nemo-python` and `apt search gir1.2-nemo`.
+On Ubuntu-family releases, package names may vary. If installation fails, check the available package names with `apt search nemo-python` and `apt search gir1.2-nemo`.
 
 ### openSUSE Tumbleweed
 
@@ -49,7 +57,9 @@ On Arch Linux, installing `nemo` also installs `python-gobject` and `python-cair
 
 ## Install
 
-Install manually:
+Install this extension file into Nemo's Python extension directory.
+
+To install manually:
 
 ```bash
 mkdir -p ~/.local/share/nemo-python/extensions
@@ -73,7 +83,9 @@ You can also start Nemo normally from the desktop launcher after quitting it wit
 
 ## Uninstall
 
-Remove the installed extension manually:
+Remove the installed extension file.
+
+To remove it manually:
 
 ```bash
 rm ~/.local/share/nemo-python/extensions/nemo_tab_restore.py
@@ -192,7 +204,9 @@ Invalid values and empty values are treated as `file`.
 
 No shortcut configuration is required by default. `Ctrl+W` saves closed-tab history, and `Ctrl+Shift+T` restores the most recently closed tab.
 
-To change shortcuts, edit Nemo / GTK's accelerator file.
+This extension uses `Ctrl+Shift+T` to match the browser convention for restoring a closed tab. Nemo itself also uses `Ctrl+Shift+T` by default for `<Actions>/DirViewActions/OpenInNewTab`, which opens selected items in new tabs.
+
+You can decide which action keeps `Ctrl+Shift+T` by editing Nemo / GTK's accelerator file.
 
 The accelerator file location can vary by distribution and Nemo / GTK version. The extension checks these candidates:
 
@@ -206,6 +220,12 @@ $XDG_CONFIG_HOME/gtk-3.0/accels/nemo
 
 `$XDG_CONFIG_HOME` paths are checked first when the variable is set and non-empty.
 
+If the accelerator file does not exist, you can create one manually, for example:
+
+```text
+~/.config/nemo/accels/nemo
+```
+
 Quit Nemo before editing the accelerator file. If Nemo is still running, it may overwrite your changes when it exits.
 
 ```bash
@@ -216,43 +236,19 @@ In the accelerator file, lines starting with `;` are commented out.
 
 In GTK accelerator notation, `<Primary>` usually means the `Ctrl` key.
 
-To explicitly set the restore shortcut, add or edit this line in the accelerator file:
+Example: change tab restore to `Ctrl+Shift+Y`:
 
 ```scheme
-(gtk_accel_path "<Actions>/NemoTabRestore/RestoreLastClosedTab" "<Primary><Shift>t")
+(gtk_accel_path "<Actions>/NemoTabRestore/RestoreLastClosedTab" "<Primary><Shift>y")
 ```
 
-This assigns:
-
-```text
-<Primary><Shift>t
-```
-
-to this action:
-
-```text
-<Actions>/NemoTabRestore/RestoreLastClosedTab
-```
-
-The close shortcut follows Nemo's existing close action:
+Example: change Nemo's built-in Open in New Tab shortcut to `Ctrl+Shift+Y`:
 
 ```scheme
-(gtk_accel_path "<Actions>/ShellActions/Close" "<Primary>w")
+(gtk_accel_path "<Actions>/DirViewActions/OpenInNewTab" "<Primary><Shift>y")
 ```
 
-This assigns:
-
-```text
-<Primary>w
-```
-
-to this action:
-
-```text
-<Actions>/ShellActions/Close
-```
-
-The restore shortcut default, `<Primary><Shift>t`, intentionally follows the browser convention for restoring a closed tab. Nemo also defines `<Primary><Shift>t` as the default accelerator for `<Actions>/DirViewActions/OpenInNewTab`, which opens selected items in new tabs. If you rely on Nemo's original binding, change this extension's restore accelerator to another shortcut in the accel file.
+The close shortcut follows Nemo's existing close action (`<Actions>/ShellActions/Close`). Normally, you do not need to change it.
 
 ## Check
 
