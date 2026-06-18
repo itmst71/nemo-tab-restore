@@ -363,6 +363,18 @@ def object_key(obj):
         return "id:{}".format(id(obj))
 
 
+def notebook_restore_key(notebook):
+    notebook_key = object_key(notebook)
+    try:
+        window = notebook.get_toplevel()
+        if window is not None and isinstance(window, Gtk.Window):
+            return "{}:{}".format(window_key(window), notebook_key)
+    except Exception:
+        pass
+
+    return notebook_key
+
+
 def iter_widget_tree(widget, depth=0, limit=6):
     if depth > limit:
         return
@@ -459,7 +471,7 @@ def remember_current_slots(window, uri, title=""):
 
 def restore_active_page_after_tab_close(notebook, removed_page):
     try:
-        notebook_key = object_key(notebook)
+        notebook_key = notebook_restore_key(notebook)
         restore = _RESTORE_AFTER_TAB_CLOSE.get(notebook_key)
         if not restore or restore.get("target_key") != object_key(removed_page):
             return
@@ -519,7 +531,7 @@ def prepare_tab_close(notebook, page, event, event_widget=None):
         if not item and current_page is not None and current_page is not page:
             # Nemo exposes the current location through get_widget(), so an
             # unseen inactive tab needs to become current once before closing.
-            _RESTORE_AFTER_TAB_CLOSE[object_key(notebook)] = {
+            _RESTORE_AFTER_TAB_CLOSE[notebook_restore_key(notebook)] = {
                 "target_key": page_key,
                 "page": current_page,
                 "page_key": object_key(current_page),
@@ -635,7 +647,7 @@ def forget_window_tab_state(window):
             if not isinstance(widget, Gtk.Notebook):
                 continue
 
-            notebook_key = object_key(widget)
+            notebook_key = notebook_restore_key(widget)
             _RESTORE_AFTER_TAB_CLOSE.pop(notebook_key, None)
 
             n_pages = widget.get_n_pages()
