@@ -40,6 +40,7 @@ from gi.repository import GObject, Gtk, Gdk, GLib, Nemo
 
 
 APP_NAME = "nemo-tab-restore"
+PLUGIN_DESCRIPTION = "Restore recently closed Nemo tabs"
 
 DATA_DIR = os.path.expanduser("~/.local/share/nemo-tab-restore")
 CACHE_DIR = os.path.expanduser("~/.cache/nemo-tab-restore")
@@ -1162,7 +1163,8 @@ def get_restore_menu_icon():
 
 class NemoTabRestore(GObject.GObject,
                      Nemo.LocationWidgetProvider,
-                     Nemo.MenuProvider):
+                     Nemo.MenuProvider,
+                     Nemo.NameAndDescProvider):
     def __init__(self):
         GObject.GObject.__init__(self)
         ensure_dirs()
@@ -1247,3 +1249,6 @@ class NemoTabRestore(GObject.GObject,
 
     def get_file_items(self, window, files):
         return []
+
+    def get_name_and_desc(self):
+        return [("{}:::{}".format(APP_NAME, PLUGIN_DESCRIPTION))]
