@@ -13,6 +13,7 @@ Tabs closed with `Ctrl+W` or mouse actions can be restored with `Ctrl+Shift+T`.
 - Restores the most recently closed tab with `Ctrl+Shift+T`
 - Supports changing shortcuts through Nemo's standard accelerator mechanism
 - Supports configuring the history limit with an environment variable
+- Supports file-backed or in-memory history
 
 ## Requirements
 
@@ -130,6 +131,8 @@ History file:
 ~/.local/share/nemo-tab-restore/closed-tabs.jsonl
 ```
 
+This file is not used when the history mode is `memory`.
+
 Log file:
 
 ```text
@@ -171,6 +174,19 @@ max: 1000
 ```
 
 Invalid values, empty values, and values below the minimum fall back to the default. Values above the maximum are clamped to `1000`.
+
+### History mode
+
+```bash
+NEMO_TAB_RESTORE_HISTORY_MODE=file nemo
+NEMO_TAB_RESTORE_HISTORY_MODE=memory nemo
+```
+
+The default is `file`. Closed-tab history is saved to `~/.local/share/nemo-tab-restore/closed-tabs.jsonl`.
+
+When set to `memory`, history is kept only in memory while Nemo is running. It is lost when Nemo quits completely, and the history file is not read or written.
+
+Invalid values and empty values are treated as `file`.
 
 ## Shortcuts
 

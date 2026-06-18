@@ -10,6 +10,7 @@
 #
 # History:
 #   ~/.local/share/nemo-tab-restore/closed-tabs.jsonl
+#   Set NEMO_TAB_RESTORE_HISTORY_MODE=memory to keep history in memory only.
 #
 # Log:
 #   ~/.cache/nemo-tab-restore/nemo-tab-restore.log
@@ -48,6 +49,7 @@ LOG_FILE = os.path.join(CACHE_DIR, "nemo-tab-restore.log")
 MAX_HISTORY_DEFAULT = 100
 MAX_HISTORY_MIN = 1
 MAX_HISTORY_MAX = 1000
+HISTORY_MODE_DEFAULT = "file"
 
 # Logging is disabled by default for normal use.
 # Override with:
@@ -107,10 +109,12 @@ _HOOKED_TAB_WIDGETS = set()
 _SLOT_URIS = {}
 _PENDING_TAB_CLOSES = {}
 _RESTORE_AFTER_TAB_CLOSE = {}
+_MEMORY_HISTORY = []
 
 
 def ensure_dirs():
-    os.makedirs(DATA_DIR, exist_ok=True)
+    if get_history_mode() == "file":
+        os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(CACHE_DIR, exist_ok=True)
 
 
@@ -126,6 +130,18 @@ def log_enabled():
         return False
 
     return LOG_ENABLED_DEFAULT
+
+
+def get_history_mode():
+    value = os.environ.get("NEMO_TAB_RESTORE_HISTORY_MODE")
+    if value is None:
+        return HISTORY_MODE_DEFAULT
+
+    value = value.strip().lower()
+    if value in ("file", "memory"):
+        return value
+
+    return HISTORY_MODE_DEFAULT
 
 
 def log(message):
@@ -703,6 +719,9 @@ def normalize_uri(uri):
 
 
 def read_history():
+    if get_history_mode() == "memory":
+        return list(_MEMORY_HISTORY)
+
     ensure_dirs()
     items = []
 
@@ -738,8 +757,13 @@ def read_history():
 
 
 def write_history(items):
-    ensure_dirs()
     items = items[-get_max_history():]
+
+    if get_history_mode() == "memory":
+        _MEMORY_HISTORY[:] = items
+        return
+
+    ensure_dirs()
 
     tmp = HISTORY_FILE + ".tmp"
     try:
@@ -939,6 +963,7 @@ class NemoTabRestore(GObject.GObject,
             RESTORE_ACCEL_PATH,
             get_accel_string(RESTORE_ACCEL_PATH, RESTORE_ACCEL_DEFAULT),
         ))
+        log("history mode -> {}".format(get_history_mode()))
         log("max history -> {}".format(get_max_history()))
 
     def get_widget(self, uri, window):

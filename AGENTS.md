@@ -148,12 +148,22 @@ History size:
 NEMO_TAB_RESTORE_MAX_HISTORY=300
 ```
 
+History mode:
+
+```text
+NEMO_TAB_RESTORE_HISTORY_MODE=file
+NEMO_TAB_RESTORE_HISTORY_MODE=memory
+```
+
+`file` is the default. `memory` keeps closed-tab history only in the running Nemo process and does not read or write the history file.
+
 Current expected constants:
 
 ```python
 MAX_HISTORY_DEFAULT = 100
 MAX_HISTORY_MIN = 1
 MAX_HISTORY_MAX = 1000
+HISTORY_MODE_DEFAULT = "file"
 LOG_ENABLED_DEFAULT = False
 ```
 
