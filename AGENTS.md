@@ -380,7 +380,7 @@ Optional before public release:
   * keyboard close shortcut
   * tab close button
   * middle-click tab close
-* Tab context menu close is not tracked.
+  * tab context menu close
 * Full open-tab enumeration is not implemented.
 * This is a Nemo extension, not Nautilus or Caja.
 * Wayland is supported because no X11 automation tool is used.

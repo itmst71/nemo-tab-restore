@@ -108,6 +108,7 @@ _WINDOWS = {}
 _HOOKED_TAB_WIDGETS = set()
 _SLOT_URIS = {}
 _PENDING_TAB_CLOSES = {}
+_PENDING_CONTEXT_TAB_CLOSES = {}
 _RESTORE_AFTER_TAB_CLOSE = {}
 _MEMORY_HISTORY = []
 
@@ -459,6 +460,13 @@ def cleanup_pending_tab_closes():
             _PENDING_TAB_CLOSES.pop(key, None)
 
 
+def cleanup_pending_context_tab_closes():
+    cutoff = now() - 60
+    for key, item in list(_PENDING_CONTEXT_TAB_CLOSES.items()):
+        if item.get("at", 0) < cutoff:
+            _PENDING_CONTEXT_TAB_CLOSES.pop(key, None)
+
+
 def remember_current_slots(window, uri, title=""):
     uri = normalize_uri(uri)
     if not uri:
@@ -483,6 +491,32 @@ def remember_current_slots(window, uri, title=""):
             }
     except Exception:
         log_exception("remember_current_slots")
+
+
+def mark_current_tabs_as_pending(window, uri):
+    uri = normalize_uri(uri)
+    if not uri:
+        return
+
+    try:
+        for _depth, widget in iter_widget_tree(window):
+            if not isinstance(widget, Gtk.Notebook):
+                continue
+
+            page_num = widget.get_current_page()
+            if page_num < 0:
+                continue
+
+            page = widget.get_nth_page(page_num)
+            if page is None:
+                continue
+
+            page_key = object_key(page)
+            item = _SLOT_URIS.get(page_key)
+            if item and normalize_uri(item.get("uri")) == uri:
+                _PENDING_TAB_CLOSES[page_key] = {"at": now()}
+    except Exception:
+        log_exception("mark_current_tabs_as_pending")
 
 
 def restore_active_page_after_tab_close(notebook, removed_page):
@@ -516,6 +550,49 @@ def restore_active_page_after_tab_close(notebook, removed_page):
         log_exception("restore_active_page_after_tab_close")
 
 
+def capture_tab_history_item(notebook, page, restore_mode):
+    try:
+        if page is None:
+            return None, None
+
+        page_num = notebook.page_num(page)
+        if page_num < 0:
+            return None, None
+
+        page_key = object_key(page)
+        current_page_num = notebook.get_current_page()
+        current_page = notebook.get_nth_page(current_page_num) if current_page_num >= 0 else None
+
+        item = _SLOT_URIS.get(page_key)
+
+        if not item and current_page is not None and current_page is not page:
+            # Nemo exposes the current location through get_widget(), so an
+            # unseen inactive tab needs to become current once before closing.
+            if restore_mode == "after-close":
+                _RESTORE_AFTER_TAB_CLOSE[notebook_restore_key(notebook)] = {
+                    "target_key": page_key,
+                    "page": current_page,
+                    "page_key": object_key(current_page),
+                }
+
+            notebook.set_current_page(page_num)
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+
+            item = _SLOT_URIS.get(page_key)
+
+            if restore_mode == "immediate":
+                notebook.set_current_page(current_page_num)
+                while Gtk.events_pending():
+                    Gtk.main_iteration_do(False)
+
+        return page_key, item
+
+    except Exception:
+        log_exception("capture_tab_history_item")
+        return None, None
+
+
 def prepare_tab_close(notebook, page, event, event_widget=None):
     try:
         button = getattr(event, "button", None)
@@ -527,37 +604,10 @@ def prepare_tab_close(notebook, page, event, event_widget=None):
         if button != 2 and not close_button_press:
             return
 
-        if page is None:
-            return
-
-        page_num = notebook.page_num(page)
-        if page_num < 0:
-            return
-
-        page_key = object_key(page)
         cleanup_pending_tab_closes()
-        if page_key in _PENDING_TAB_CLOSES:
+        page_key, item = capture_tab_history_item(notebook, page, "after-close")
+        if not page_key or page_key in _PENDING_TAB_CLOSES:
             return
-
-        current_page_num = notebook.get_current_page()
-        current_page = notebook.get_nth_page(current_page_num) if current_page_num >= 0 else None
-
-        item = _SLOT_URIS.get(page_key)
-
-        if not item and current_page is not None and current_page is not page:
-            # Nemo exposes the current location through get_widget(), so an
-            # unseen inactive tab needs to become current once before closing.
-            _RESTORE_AFTER_TAB_CLOSE[notebook_restore_key(notebook)] = {
-                "target_key": page_key,
-                "page": current_page,
-                "page_key": object_key(current_page),
-            }
-
-            notebook.set_current_page(page_num)
-            while Gtk.events_pending():
-                Gtk.main_iteration_do(False)
-
-            item = _SLOT_URIS.get(page_key)
 
         if not item:
             return
@@ -571,9 +621,46 @@ def prepare_tab_close(notebook, page, event, event_widget=None):
         log_exception("prepare_tab_close")
 
 
+def prepare_context_tab_close(notebook, page, event):
+    try:
+        if getattr(event, "button", None) != 3:
+            return
+
+        cleanup_pending_context_tab_closes()
+        page_key, item = capture_tab_history_item(notebook, page, "immediate")
+        if not page_key or not item:
+            return
+
+        uri = item.get("uri")
+        if not normalize_uri(uri):
+            return
+
+        _PENDING_CONTEXT_TAB_CLOSES[page_key] = {
+            "at": now(),
+            "notebook": notebook_restore_key(notebook),
+            "uri": uri,
+            "title": uri_to_title(uri),
+        }
+        log("context close candidate uri={} title={!r}".format(
+            uri,
+            _PENDING_CONTEXT_TAB_CLOSES[page_key]["title"],
+        ))
+    except Exception:
+        log_exception("prepare_context_tab_close")
+
+
 def on_notebook_button_press(notebook, event):
     try:
-        if getattr(event, "button", None) != 2:
+        button = getattr(event, "button", None)
+        if button == 3:
+            page = tab_label_at_point(
+                notebook,
+                getattr(event, "x", -1),
+                getattr(event, "y", -1),
+            )
+            prepare_context_tab_close(notebook, page, event)
+
+        if button != 2:
             return False
 
         page = tab_label_at_point(
@@ -590,6 +677,7 @@ def on_notebook_button_press(notebook, event):
 
 def on_tab_widget_button_press(widget, event, notebook, page):
     try:
+        prepare_context_tab_close(notebook, page, event)
         prepare_tab_close(notebook, page, event, event_widget=widget)
     except Exception:
         log_exception("on_tab_widget_button_press")
@@ -600,6 +688,13 @@ def on_tab_widget_button_press(widget, event, notebook, page):
 def on_notebook_page_removed(notebook, page, _page_num):
     try:
         page_key = object_key(page)
+        context_item = _PENDING_CONTEXT_TAB_CLOSES.pop(page_key, None)
+        if (
+            context_item
+            and page_key not in _PENDING_TAB_CLOSES
+            and context_item.get("notebook") == notebook_restore_key(notebook)
+        ):
+            push_history(context_item.get("uri"), title=context_item.get("title"))
         _PENDING_TAB_CLOSES.pop(page_key, None)
         _SLOT_URIS.pop(page_key, None)
         restore_active_page_after_tab_close(notebook, page)
@@ -675,6 +770,7 @@ def forget_window_tab_state(window):
                 page_key = object_key(page)
                 _SLOT_URIS.pop(page_key, None)
                 _PENDING_TAB_CLOSES.pop(page_key, None)
+                _PENDING_CONTEXT_TAB_CLOSES.pop(page_key, None)
     except Exception:
         log_exception("forget_window_tab_state")
 
@@ -689,6 +785,24 @@ def uri_to_display(uri):
     except Exception:
         pass
     return uri
+
+
+def uri_to_title(uri):
+    display = uri_to_display(uri)
+    if not display:
+        return ""
+
+    try:
+        parsed = urlparse(uri)
+        if parsed.scheme == "file":
+            path = unquote(parsed.path).rstrip(os.sep)
+            base = os.path.basename(path)
+            if base:
+                return base
+    except Exception:
+        pass
+
+    return display
 
 
 def file_uri_exists(uri):
@@ -870,7 +984,8 @@ def on_key_press(window, event):
 
         if is_close_shortcut(event):
             if uri:
-                push_history(uri, title=title)
+                if push_history(uri, title=title):
+                    mark_current_tabs_as_pending(window, uri)
             else:
                 log("close shortcut observed but no URI known")
 
