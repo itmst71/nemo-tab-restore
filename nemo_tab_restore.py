@@ -685,29 +685,15 @@ def tab_label_at_point(notebook, x, y):
     return None
 
 
-def menu_item_label(item):
+def menu_item_accel_path(item):
     try:
-        label = item.get_label()
-        if label:
-            return label
+        return item.get_accel_path() or ""
     except Exception:
-        pass
-
-    labels = []
-    try:
-        for _depth, widget in iter_widget_tree(item, limit=4):
-            if isinstance(widget, Gtk.Label):
-                text = widget.get_text()
-                if text:
-                    labels.append(text)
-    except Exception:
-        pass
-
-    return " / ".join(labels)
+        return ""
 
 
-def menu_label_matches(label, expected):
-    return label.replace("_", "").strip().lower() == expected
+def is_close_menu_item(item):
+    return menu_item_accel_path(item) == CLOSE_ACCEL_PATH
 
 
 def on_file_close_menu_activate(_item):
@@ -743,9 +729,6 @@ def hook_file_menu_widgets(window):
                 if not isinstance(child, Gtk.MenuItem):
                     continue
 
-                if not menu_label_matches(menu_item_label(child), "file"):
-                    continue
-
                 submenu = child.get_submenu()
                 if not isinstance(submenu, Gtk.Menu):
                     continue
@@ -753,7 +736,7 @@ def hook_file_menu_widgets(window):
                 for item in submenu.get_children():
                     if not isinstance(item, Gtk.MenuItem):
                         continue
-                    if not menu_label_matches(menu_item_label(item), "close"):
+                    if not is_close_menu_item(item):
                         continue
 
                     item_key = object_key(item)
