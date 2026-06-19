@@ -327,7 +327,7 @@ Example: change Nemo's built-in Open in New Tab shortcut to `Ctrl+Shift+Y`:
 
 The close shortcut follows Nemo's existing close action (`<Actions>/ShellActions/Close`). Normally, you do not need to change it.
 
-## Check
+## Syntax Check
 
 Syntax check:
 
@@ -360,7 +360,9 @@ hooked window wid=0x... uri=file:///... title='Loading...'
 
 ## Known limitations
 
-- Full open-tab enumeration is not implemented.
+- This extension restores closed tabs individually when requested. It does not manage Nemo sessions or restore the tabs that were open when Nemo last exited.
+- Tracking tab closes from mouse actions can depend on the Nemo version, theme, and GTK widget structure. If it does not work in a given environment, keyboard shortcut closes are still tracked.
+- When closing an inactive tab with a mouse action or opening its context menu, the extension may briefly switch to that tab to capture its URI. It switches back to the previously active tab after capturing the URI.
 - This is a Nemo extension, not a Nautilus or Caja extension.
 
 ## Troubleshooting
