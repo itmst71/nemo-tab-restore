@@ -13,6 +13,7 @@ Tabs closed with `Ctrl+W`, mouse actions, and similar close operations can be re
 - Restores the most recently closed tab with `Ctrl+Shift+T`
 - Supports changing shortcuts
 - Supports configuration through a configuration file or environment variables
+- Supports shared, per-window, or hybrid restore history
 - Supports file-backed or in-memory history
 
 ## Requirements
@@ -211,6 +212,24 @@ The default is `file`. Closed-tab history is saved to `~/.local/share/nemo-tab-r
 
 When set to `memory`, history is kept only in memory while Nemo is running. It is lost when Nemo quits completely, and the history file is not read or written.
 
+#### `NEMO_TAB_RESTORE_HISTORY_SCOPE`
+
+Sets how restore history is handled across Nemo windows.
+
+```env
+NEMO_TAB_RESTORE_HISTORY_SCOPE=shared
+NEMO_TAB_RESTORE_HISTORY_SCOPE=window
+NEMO_TAB_RESTORE_HISTORY_SCOPE=hybrid
+```
+
+The default is `shared`.
+
+`shared` uses one restore history across all Nemo windows.
+
+`window` restores only tabs closed in the current window.
+
+`hybrid` prefers the current window's history. If there is nothing to restore for the current window, history from closed windows and old-format history entries is also considered.
+
 #### `NEMO_TAB_RESTORE_LOG`
 
 Configures debug logging.
@@ -246,11 +265,14 @@ If the configuration file does not exist, the extension creates it the first tim
 ~/.config/nemo-tab-restore/config.env
 ```
 
+When new settings are added in a newer version, existing configuration files are not updated automatically. To regenerate the latest sample, save any settings you still need, delete `~/.config/nemo-tab-restore/config.env`, and restart Nemo.
+
 Example:
 
 ```env
 NEMO_TAB_RESTORE_MAX_HISTORY=300
 NEMO_TAB_RESTORE_HISTORY_MODE=memory
+NEMO_TAB_RESTORE_HISTORY_SCOPE=hybrid
 NEMO_TAB_RESTORE_LOG=true
 NEMO_TAB_RESTORE_RESTORE_SHORTCUT=Ctrl+Shift+Y
 ```
@@ -377,7 +399,9 @@ When debugging GI import problems, check the distribution Python directly:
 - Each key press is handled separately, matching browser-like behavior.
 - Consecutive duplicate URIs are not suppressed. The same folder can legitimately be open in multiple tabs.
 - When closing an inactive tab with a mouse action before its URI is known, the extension briefly switches to that tab to capture the URI, then returns to the previously active tab after the close.
-- In the current behavior, closed-tab history is shared rather than tracked per window. If multiple Nemo windows are open, restore uses the most recently saved history entry.
+- With `NEMO_TAB_RESTORE_HISTORY_SCOPE=shared`, closed-tab history is shared rather than tracked per window.
+- When `NEMO_TAB_RESTORE_HISTORY_SCOPE=window` is combined with `NEMO_TAB_RESTORE_HISTORY_MODE=file`, history from old windows remains in the history file but is not restored from the current window. If needed, switch to `shared` or `hybrid` to make those entries eligible for restore.
+- With `NEMO_TAB_RESTORE_HISTORY_SCOPE=hybrid`, history from other currently open Nemo windows is not used as fallback restore history.
 
 The accelerator file location can vary by distribution and Nemo / GTK version. The extension checks these candidates:
 

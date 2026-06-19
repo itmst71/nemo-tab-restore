@@ -11,6 +11,7 @@
 # History:
 #   ~/.local/share/nemo-tab-restore/closed-tabs.jsonl
 #   Set NEMO_TAB_RESTORE_HISTORY_MODE=memory to keep history in memory only.
+#   Set NEMO_TAB_RESTORE_HISTORY_SCOPE=window to restore per-window history.
 #
 # Log:
 #   ~/.cache/nemo-tab-restore/nemo-tab-restore.log
@@ -61,6 +62,7 @@ MAX_HISTORY_DEFAULT = 100
 MAX_HISTORY_MIN = 1
 MAX_HISTORY_MAX = 1000
 HISTORY_MODE_DEFAULT = "file"
+HISTORY_SCOPE_DEFAULT = "shared"
 
 # Logging is disabled by default for normal use.
 # Override with:
@@ -123,6 +125,7 @@ CONFIG_TEMPLATE = """# Nemo Tab Restore configuration
 # NEMO_TAB_RESTORE_LOG=false
 # NEMO_TAB_RESTORE_MAX_HISTORY=100
 # NEMO_TAB_RESTORE_HISTORY_MODE=file
+# NEMO_TAB_RESTORE_HISTORY_SCOPE=shared
 # NEMO_TAB_RESTORE_RESTORE_SHORTCUT=Ctrl+Shift+T
 
 # The close shortcut follows Nemo's own Close action.
@@ -266,6 +269,18 @@ def get_history_mode():
         return value
 
     return HISTORY_MODE_DEFAULT
+
+
+def get_history_scope():
+    value = get_setting_value("NEMO_TAB_RESTORE_HISTORY_SCOPE")
+    if value is None:
+        return HISTORY_SCOPE_DEFAULT
+
+    value = value.strip().lower()
+    if value in ("shared", "window", "hybrid"):
+        return value
+
+    return HISTORY_SCOPE_DEFAULT
 
 
 def log(message):
@@ -599,6 +614,16 @@ def notebook_restore_key(notebook):
     return notebook_key
 
 
+def notebook_window_key(notebook):
+    try:
+        window = notebook.get_toplevel()
+        if window is not None and isinstance(window, Gtk.Window):
+            return window_key(window)
+    except Exception:
+        pass
+    return ""
+
+
 def iter_widget_tree(widget, depth=0, limit=6):
     if depth > limit:
         return
@@ -699,7 +724,11 @@ def on_file_close_menu_activate(_item):
             log("file close menu candidate expired uri={}".format(item.get("uri")))
             return
 
-        push_history(item.get("uri"), title=item.get("title"))
+        push_history(
+            item.get("uri"),
+            title=item.get("title"),
+            window_id=item.get("window_id"),
+        )
     except Exception:
         log_exception("on_file_close_menu_activate")
 
@@ -773,6 +802,7 @@ def remember_current_slots(window, uri, title=""):
             _SLOT_URIS[object_key(page)] = {
                 "uri": uri,
                 "title": title or uri_to_display(uri),
+                "window_id": window_key(window),
             }
     except Exception:
         log_exception("remember_current_slots")
@@ -899,7 +929,7 @@ def prepare_tab_close(notebook, page, event, event_widget=None):
 
         uri = item.get("uri")
         title = item.get("title") or uri_to_display(uri)
-        if push_history(uri, title=title):
+        if push_history(uri, title=title, window_id=notebook_window_key(notebook)):
             _PENDING_TAB_CLOSES[page_key] = {"at": now(), "uri": uri}
 
     except Exception:
@@ -923,6 +953,7 @@ def prepare_context_tab_close(notebook, page, event):
         _PENDING_CONTEXT_TAB_CLOSES[page_key] = {
             "at": now(),
             "notebook": notebook_restore_key(notebook),
+            "window_id": notebook_window_key(notebook),
             "uri": uri,
             "title": uri_to_title(uri),
         }
@@ -981,7 +1012,11 @@ def on_notebook_page_removed(notebook, page, _page_num):
             and page_key not in _PENDING_TAB_CLOSES
             and context_item.get("notebook") == notebook_restore_key(notebook)
         ):
-            push_history(context_item.get("uri"), title=context_item.get("title"))
+            push_history(
+                context_item.get("uri"),
+                title=context_item.get("title"),
+                window_id=context_item.get("window_id"),
+            )
         elif page_key not in _PENDING_TAB_CLOSES:
             item = _SLOT_URIS.get(page_key)
             if item:
@@ -991,6 +1026,7 @@ def on_notebook_page_removed(notebook, page, _page_num):
                         "at": now(),
                         "uri": uri,
                         "title": item.get("title") or uri_to_title(uri),
+                        "window_id": item.get("window_id") or notebook_window_key(notebook),
                     }
         _PENDING_TAB_CLOSES.pop(page_key, None)
         _SLOT_URIS.pop(page_key, None)
@@ -1159,6 +1195,7 @@ def read_history():
                     "uri": uri,
                     "title": item.get("title") or "",
                     "closed_at": item.get("closed_at") or 0,
+                    "window_id": item.get("window_id") or "",
                 })
     except Exception:
         log_exception("read_history")
@@ -1191,7 +1228,7 @@ def write_history(items):
             pass
 
 
-def push_history(uri, title=""):
+def push_history(uri, title="", window_id=""):
     uri = normalize_uri(uri)
     if not uri:
         return False
@@ -1202,37 +1239,89 @@ def push_history(uri, title=""):
         "uri": uri,
         "title": title or uri_to_display(uri),
         "closed_at": int(now()),
+        "window_id": window_id or "",
     }
 
     items.append(item)
     write_history(items)
 
-    log("pushed uri={} title={!r}".format(uri, item["title"]))
+    log("pushed uri={} title={!r} window_id={}".format(
+        uri,
+        item["title"],
+        item["window_id"],
+    ))
     return True
 
 
-def pop_history_existing():
+def pop_history_candidate(items, predicate):
+    changed = False
+
+    for index in range(len(items) - 1, -1, -1):
+        item = items[index]
+        if not predicate(item):
+            continue
+
+        uri = normalize_uri(item.get("uri"))
+        if not uri:
+            del items[index]
+            changed = True
+            continue
+
+        if not file_uri_exists(uri):
+            log("discard missing uri={}".format(uri))
+            del items[index]
+            changed = True
+            continue
+
+        del items[index]
+        changed = True
+        return item, changed
+
+    return None, changed
+
+
+def pop_history_existing(window_id=""):
     """
     Pop from the tail.
     If file:// path no longer exists, discard and continue.
     """
     items = read_history()
+    scope = get_history_scope()
+    window_id = window_id or ""
 
-    while items:
-        item = items.pop()
-        uri = normalize_uri(item.get("uri"))
-        if not uri:
-            continue
+    def any_window(_item):
+        return True
 
-        if not file_uri_exists(uri):
-            log("discard missing uri={}".format(uri))
-            continue
+    def current_window(item):
+        return bool(window_id) and item.get("window_id") == window_id
 
+    def orphaned_window(item):
+        item_window_id = item.get("window_id") or ""
+        return not item_window_id or item_window_id not in _WINDOWS
+
+    if scope == "window":
+        item, changed = pop_history_candidate(items, current_window)
+    elif scope == "hybrid":
+        item, changed = pop_history_candidate(items, current_window)
+        if not item:
+            fallback_item, fallback_changed = pop_history_candidate(items, orphaned_window)
+            item = fallback_item
+            changed = changed or fallback_changed
+    else:
+        item, changed = pop_history_candidate(items, any_window)
+
+    if changed:
         write_history(items)
-        log("popped uri={}".format(uri))
+
+    if item:
+        log("popped uri={} scope={} window_id={} item_window_id={}".format(
+            item.get("uri"),
+            scope,
+            window_id,
+            item.get("window_id") or "",
+        ))
         return item
 
-    write_history([])
     return None
 
 
@@ -1281,7 +1370,7 @@ def on_key_press(window, event):
 
         if is_close_shortcut(event):
             if uri:
-                if push_history(uri, title=title):
+                if push_history(uri, title=title, window_id=wid):
                     mark_current_tabs_as_pending(window, uri)
             else:
                 log("close shortcut observed but no URI known")
@@ -1290,7 +1379,7 @@ def on_key_press(window, event):
             return False
 
         if is_restore_shortcut(event):
-            item = pop_history_existing()
+            item = pop_history_existing(window_id=wid)
             if not item:
                 log("restore requested but history is empty")
                 return True
@@ -1391,6 +1480,7 @@ class NemoTabRestore(GObject.GObject,
         ))
         log("shortcut restore -> {!r}".format(get_restore_accel_string()))
         log("history mode -> {}".format(get_history_mode()))
+        log("history scope -> {}".format(get_history_scope()))
         log("max history -> {}".format(get_max_history()))
 
     def get_widget(self, uri, window):
@@ -1438,7 +1528,7 @@ class NemoTabRestore(GObject.GObject,
 
             def on_restore(_item):
                 try:
-                    item = pop_history_existing()
+                    item = pop_history_existing(window_id=window_key(window))
                     if item:
                         open_uri_in_existing_window(item["uri"])
                     else:
